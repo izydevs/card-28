@@ -1,0 +1,12 @@
+{
+  "name": "card-28",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Twenty-Eight (28) — Indian trick-taking card game, playable in the browser.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node scripts/test.mjs && node scripts/selfplay.mjs 600",
+    "selfplay": "node scripts/selfplay.mjs"
+  }
+}

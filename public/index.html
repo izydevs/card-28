@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Twenty-Eight</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f5132'/%3E%3Ctext x='8' y='12' font-family='Georgia,serif' font-size='10' font-weight='bold' fill='%23f4e9c8' text-anchor='middle'%3E28%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Twenty&#8209;Eight</h1>
+      <div class="scoreline" id="scoreline"></div>
+      <span class="spacer"></span>
+      <button id="rules-btn" class="btn ghost">Rules</button>
+      <button id="new-hand" class="btn">New hand</button>
+    </header>
+
+    <main class="table" id="table">
+      <div class="seat seat-north" id="seat-2"></div>
+      <div class="seat seat-west" id="seat-1"></div>
+      <div class="seat seat-east" id="seat-3"></div>
+
+      <section class="centre">
+        <div class="trump-slot" id="trump-slot"></div>
+        <div class="trick" id="trick"></div>
+        <div class="banner" id="banner"></div>
+      </section>
+
+      <div class="seat seat-south" id="seat-0"></div>
+    </main>
+
+    <section class="handbar">
+      <div class="actions" id="actions"></div>
+      <div class="hand" id="hand"></div>
+    </section>
+
+    <aside class="log" id="log" aria-live="polite" aria-label="Play log"></aside>
+
+    <dialog id="rules-dialog" class="rules">
+      <h2>Twenty-Eight</h2>
+      <p>
+        Four players, partners sitting opposite. You are <b>South</b>; <b>North</b> is your partner.
+      </p>
+      <h3>The deck — 32 cards</h3>
+      <p>
+        Only eight ranks are used, and the order is the game's own:
+        <b>J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7</b>. The Jack is the strongest card
+        and the Nine beats the Ace.
+      </p>
+      <h3>The points — 28 of them</h3>
+      <p>
+        <b>J = 3</b>, <b>9 = 2</b>, <b>A = 1</b>, <b>10 = 1</b>; everything else is worth nothing.
+        Across four suits that is exactly 28 — the whole game is a fight over those 28 points.
+      </p>
+      <h3>Bidding</h3>
+      <p>
+        You see four cards and bid how many of the 28 points your side will take, from 16 upward.
+        The winner picks a trump suit and places that card <b>face down</b>. Then the rest of the
+        cards are dealt.
+      </p>
+      <h3>The concealed trump</h3>
+      <p>
+        Nobody knows the trump suit — not even the bidder's partner. Follow the suit led if you
+        can. When you <em>cannot</em>, you may <b>call for trump</b> to have it turned up; from that
+        card onward trump beats everything. A trump played before the reveal is just a discard.
+      </p>
+      <p class="muted">
+        If you call for trump, you must then play one if you hold it. The bidder's face-down card
+        returns to their hand when trump is revealed.
+      </p>
+      <form method="dialog"><button class="btn">Close</button></form>
+    </dialog>
+
+    <script type="module" src="/ui.js"></script>
+  </body>
+</html>
