@@ -6,7 +6,7 @@
     <title>Twenty-Eight</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f5132'/%3E%3Ctext x='8' y='12' font-family='Georgia,serif' font-size='10' font-weight='bold' fill='%23f4e9c8' text-anchor='middle'%3E28%3C/text%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f5132'/%3E%3Ctext x='8' y='12' font-family='Georgia,serif' font-size='10' font-weight='bold' fill='%23e8c46a' text-anchor='middle'%3E28%3C/text%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/style.css" />
   </head>
@@ -19,18 +19,18 @@
       <button id="new-hand" class="btn">New hand</button>
     </header>
 
-    <main class="table" id="table">
-      <div class="seat seat-north" id="seat-2"></div>
-      <div class="seat seat-west" id="seat-1"></div>
-      <div class="seat seat-east" id="seat-3"></div>
+    <main class="table">
+      <div class="felt">
+        <div class="seat seat-north" id="seat-2"></div>
+        <div class="seat seat-west" id="seat-1"></div>
+        <div class="seat seat-east" id="seat-3"></div>
+        <div class="seat seat-south ours" id="seat-0"></div>
 
-      <section class="centre">
-        <div class="trump-slot" id="trump-slot"></div>
-        <div class="trick" id="trick"></div>
-        <div class="banner" id="banner"></div>
-      </section>
-
-      <div class="seat seat-south" id="seat-0"></div>
+        <section class="centre" id="centre">
+          <div class="trick" id="trick"></div>
+          <div class="banner" id="banner"></div>
+        </section>
+      </div>
     </main>
 
     <section class="handbar">
@@ -54,7 +54,8 @@
       <h3>The points — 28 of them</h3>
       <p>
         <b>J = 3</b>, <b>9 = 2</b>, <b>A = 1</b>, <b>10 = 1</b>; everything else is worth nothing.
-        Across four suits that is exactly 28 — the whole game is a fight over those 28 points.
+        Across four suits that is exactly 28 — the whole game is a fight over those 28 points. The
+        value is printed in gold on every card that has one.
       </p>
       <h3>Bidding</h3>
       <p>
