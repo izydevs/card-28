@@ -2,23 +2,28 @@
 // state, animates the transitions between states, and turns clicks into moves.
 
 import {
-  createGame, placeBid, chooseTrump, playCard, revealTrump, legalPlaysFor,
-  mayRequestTrump, handPoints, cardId, SEATS, SUIT_NAMES, RED,
-  teamOf, partnerOf, MIN_BID, MAX_BID, trickWinner, strength,
+  createGame, placeBid, chooseTrump, playCard, revealTrump, legalPlaysFor, mayRequestTrump,
+  handPoints, cardId, SEATS, SUIT_NAMES, RED, teamOf, partnerOf, nextSeat, MAX_BID,
+  trickWinner, strength, minBidFor, mayPass, mayRequestRedeal, requestRedeal, raiseBid,
+  minRaise, mayRaise, mayDeclareThani, declareThani, decideDouble, decideRedouble,
+  mayDeclarePair, declarePair, mayConcede, concede, answerConcession, matchWinner,
+  isJoker, DEFAULT_RULES, MATCH_TARGET, gamePointValues, THANI_VALUES,
 } from "./game.js";
-import { decideBid, chooseTrumpSuit, decidePlay, wantsTrump } from "./ai.js";
+import { aiAct, decidePlay, wantsTrump, wantsPair, wantsConcede } from "./ai.js";
 
 const $ = (id) => document.getElementById(id);
 const ME = 0; // South
 const PAUSE = { bid: 560, play: 640, trick: 1150, collect: 480 };
+const RULES_KEY = "card28.rules";
 
 let game = null;
 let busy = false;
 let pendingTrump = null; // card the human selected as trump, awaiting confirm
 let dealing = false; // stagger the hand's entrance after a deal
-const score = [0, 0];
+const score = [0, 0]; // game points this match
 let lastScore = [0, 0];
-let dealer = 3;
+let dealer = 1; // West deals first, so South opens
+let champion = null; // team that has won the match, if any
 
 // A finished trick is cleared by the engine immediately, but a reader needs a beat
 // to see it. The UI keeps the completed trick on the table, then sweeps it to the
@@ -34,12 +39,53 @@ const el = (tag, cls, text) => {
 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const cardName = (card) => (isJoker(card) ? "Joker" : `${card.rank}${card.suit}`);
+
+// ---------------------------------------------------------------- house rules
+
+// A per-browser convenience only; the game plays fine when storage is unavailable.
+function loadRules() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RULES_KEY) ?? "{}");
+    return { ...DEFAULT_RULES, ...saved };
+  } catch {
+    return { ...DEFAULT_RULES };
+  }
+}
+let rules = loadRules();
+
+function saveRules() {
+  try {
+    localStorage.setItem(RULES_KEY, JSON.stringify(rules));
+  } catch {
+    /* private window or blocked storage: keep the in-memory copy */
+  }
+}
+
+function bindRuleControls() {
+  for (const input of document.querySelectorAll("[data-rule]")) {
+    const key = input.dataset.rule;
+    if (input.type === "checkbox") input.checked = !!rules[key];
+    else input.value = String(rules[key]);
+    input.addEventListener("change", () => {
+      rules = { ...rules, [key]: input.type === "checkbox" ? input.checked : Number(input.value) };
+      saveRules();
+      $("rules-note").textContent = "Saved — applies from the next hand.";
+    });
+  }
+}
 
 // ---------------------------------------------------------------- cards
 
 function cardEl(card, { small = false, facedown = false } = {}) {
   const node = el("div", `card${small ? " small" : ""}${facedown ? " facedown" : ""}`);
   if (facedown) return node;
+  if (isJoker(card)) {
+    node.classList.add("joker");
+    node.append(el("div", "idx", "★"), el("div", "pip", "★"), el("div", "joker-word", "JOKER"));
+    node.dataset.id = cardId(card);
+    return node;
+  }
   if (RED.has(card.suit)) node.classList.add("red");
 
   const idx = el("div", "idx");
@@ -104,6 +150,17 @@ function render() {
   renderScore();
 }
 
+function contractLabel() {
+  if (!game?.highBid) return null;
+  if (game.thani) return `Thani by ${SEATS[game.bidWinner]}`;
+  let text = `${game.target}`;
+  if (game.pair) text = `${game.pair.from}→${game.target}`;
+  text += ` by ${SEATS[game.bidWinner]}`;
+  if (game.multiplier === 2) text += " · doubled";
+  if (game.multiplier === 4) text += " · redoubled";
+  return text;
+}
+
 function renderScore() {
   const host = $("scoreline");
   host.replaceChildren();
@@ -113,6 +170,7 @@ function renderScore() {
   ];
   for (const [i, t] of teams.entries()) {
     const chip = el("span", `team-chip${t.ours ? " ours" : ""}`);
+    chip.title = `Game points — first to ${MATCH_TARGET} wins, −${MATCH_TARGET} loses`;
     chip.append(el("span", null, t.label));
     const n = el("b", null, t.n);
     if (t.n !== lastScore[i]) n.classList.add("bump");
@@ -120,10 +178,11 @@ function renderScore() {
     host.append(chip);
   }
   lastScore = [...score];
-  if (game?.highBid) {
-    host.append(el("span", "contract-chip", `${game.highBid} by ${SEATS[game.bidWinner]}`));
-  }
-  if (game?.trumpCard && !game.trumpRevealed) {
+  const contract = contractLabel();
+  if (contract) host.append(el("span", "contract-chip", contract));
+  if (game?.thani) {
+    host.append(el("span", "trump-chip", "No trump"));
+  } else if (game?.trumpCard && !game.trumpRevealed) {
     const chip = el("span", "trump-chip hidden-trump");
     chip.append(el("span", null, "Trump"));
     chip.append(el("span", "mini-back"));
@@ -145,23 +204,28 @@ function renderSeats() {
   for (let seat = 0; seat < 4; seat++) {
     const host = $(`seat-${seat}`);
     host.replaceChildren();
-    host.classList.toggle("active", game.turn === seat && game.phase !== "done" && !settling);
+    const out = game.thani && seat === partnerOf(game.bidWinner);
+    host.classList.toggle("active", game.turn === seat && !["done", "redeal"].includes(game.phase) && !settling);
+    host.classList.toggle("sitting-out", out);
 
     const who = el("div", "who");
     who.append(el("span", "avatar", SEATS[seat][0]));
     who.append(el("span", null, seat === ME ? "You" : SEATS[seat]));
+    if (seat === game.dealer) who.append(el("span", "dealer-chip", "D"));
     host.append(who);
 
     const meta = el("div", "meta");
     if (seat === partnerOf(ME)) meta.append(el("span", null, "partner "));
-    if (game.phase === "bidding") {
+    if (out) meta.append(el("span", "bid", "sits out"));
+    else if (game.phase === "bidding") {
       const mine = [...game.bids].reverse().find((b) => b.seat === seat);
       if (game.passed[seat]) meta.append(el("span", null, "passed"));
       else if (mine) meta.append(el("span", "bid", `bid ${mine.bid}`));
       else meta.append(el("span", null, "—"));
     } else if (game.bidWinner === seat) {
-      meta.append(el("span", "bid", `bid ${game.highBid}`));
+      meta.append(el("span", "bid", game.thani ? "Thani" : `bid ${game.highBid}`));
     }
+    if (game.pair?.seat === seat) meta.append(el("span", "bid", " · Pair"));
     host.append(meta);
 
     if (seat !== ME) {
@@ -170,6 +234,19 @@ function renderSeats() {
       host.append(backs);
     }
   }
+}
+
+function resultText(r) {
+  const mine = r.biddingTeam === teamOf(ME);
+  const side = mine ? "Your side" : "They";
+  const pts = r.delta[r.biddingTeam];
+  const gp = `${pts > 0 ? "+" : "−"}${Math.abs(pts)} game point${Math.abs(pts) === 1 ? "" : "s"}`;
+  if (r.thani) return `${side} ${r.made ? "made" : "lost"} Thani — ${gp}.`;
+  if (r.note === "conceded") return `Conceded. ${side} ${r.made ? "made" : "failed"} ${r.target} — ${gp}.`;
+  const extra = r.note ? ` (${r.note})` : "";
+  return r.made
+    ? `${side} made ${r.target} with ${r.got} of 28${extra} — ${gp}.`
+    : `${side} failed ${r.target} with only ${r.got}${extra} — ${gp}.`;
 }
 
 function renderCentre() {
@@ -200,13 +277,12 @@ function renderCentre() {
   const banner = $("banner");
   banner.replaceChildren();
   if (game.phase === "done" && game.result) {
-    const r = game.result;
-    const mine = r.biddingTeam === teamOf(ME);
-    banner.textContent = r.made
-      ? `${mine ? "Your side" : "They"} made ${r.bid} — took ${r.got} of 28.`
-      : `${mine ? "Your side" : "They"} failed ${r.bid} — took only ${r.got}.`;
+    banner.textContent = resultText(game.result);
+    if (champion !== null) {
+      banner.append(el("div", "match", champion === teamOf(ME) ? "You and North win the match!" : "West and East win the match."));
+    }
   } else if (game.phase === "redeal") {
-    banner.textContent = "Everyone passed. Deal again.";
+    banner.textContent = `Redeal — ${game.redealReason}`;
   }
 }
 
@@ -216,7 +292,6 @@ function renderHand() {
   const hand = [...game.hands[ME]].sort(
     (a, b) => a.suit.localeCompare(b.suit) || strength(b.rank) - strength(a.rank),
   );
-  const lead = game.trick.length ? game.trick[0].card.suit : null;
   const myTurn = game.turn === ME && !busy && !settling;
   const legal = game.phase === "playing" && myTurn ? legalPlaysFor(game, ME) : [];
   const legalIds = new Set(legal.map(cardId));
@@ -233,25 +308,54 @@ function renderHand() {
       node.style.animationDelay = `${i * 55}ms`;
     }
 
-    if (game.phase === "trump" && game.bidWinner === ME) {
-      node.classList.add("playable");
-      if (pendingTrump && cardId(pendingTrump) === cardId(card)) node.classList.add("chosen");
-      node.addEventListener("click", () => {
-        pendingTrump = card;
-        render();
-      });
+    if (game.phase === "trump" && game.bidWinner === ME && !busy) {
+      if (isJoker(card)) {
+        node.classList.add("blocked");
+        node.title = "The Joker cannot be the trump card";
+      } else {
+        node.classList.add("playable");
+        if (pendingTrump && cardId(pendingTrump) === cardId(card)) node.classList.add("chosen");
+        node.addEventListener("click", () => {
+          pendingTrump = card;
+          render();
+        });
+      }
     } else if (game.phase === "playing" && myTurn) {
       if (legalIds.has(cardId(card))) {
         node.classList.add("playable");
         node.addEventListener("click", () => humanPlays(card));
       } else {
         node.classList.add("blocked");
-        node.title = `You must follow ${SUIT_NAMES[lead]}`;
+        node.title = blockedReason(card);
       }
     }
     host.append(node);
   }
+
+  // The bidder's face-down card sits beside the hand until trump is revealed.
+  if (game.bidWinner === ME && game.trumpCard && !game.trumpRevealed && !game.thani) {
+    const slot = el("div", "facedown-slot");
+    slot.append(cardEl(game.trumpCard, { small: true }));
+    slot.append(el("span", null, "face down"));
+    host.append(slot);
+  }
 }
+
+function blockedReason(card) {
+  const lead = game.trick.find((p) => !isJoker(p.card))?.card.suit;
+  if (!game.trick.length) return "The bidder may not lead the hidden trump suit";
+  if (lead && game.hands[ME].some((c) => c.suit === lead && !isJoker(c))) return `You must follow ${SUIT_NAMES[lead]}`;
+  if (game.trumpRevealed && game.revealedBy === ME) return "You called for trump, so you must play one";
+  if (card.rank === "J" && rules.noJackDiscard) return "A Jack may not be thrown away";
+  return "You may not discard the hidden trump suit";
+}
+
+const button = (label, cls, onClick, title) => {
+  const b = el("button", `btn${cls ? " " + cls : ""}`, label);
+  if (title) b.title = title;
+  b.addEventListener("click", onClick);
+  return b;
+};
 
 function renderActions() {
   const host = $("actions");
@@ -259,70 +363,108 @@ function renderActions() {
   if (busy || settling) return;
 
   if (game.phase === "bidding" && game.turn === ME) {
+    const floor = minBidFor(game, ME);
+    const overPartner = game.bidWinner === partnerOf(ME);
     host.append(
-      el("span", "prompt", `These four are worth ${handPoints(game.hands[ME])}. Your bid?`),
+      el("span", "prompt", `These four are worth ${handPoints(game.hands[ME])}. ${mayPass(game) ? "Your bid?" : "You open — bid at least " + floor + "."}`),
     );
-    const floor = Math.max(MIN_BID, game.highBid + 1);
+    if (overPartner) host.append(el("span", null, "(over your partner: 20+)"));
     for (const bid of [floor, floor + 1, floor + 2, floor + 4]) {
       if (bid > MAX_BID) break;
-      const b = el("button", "btn", String(bid));
-      b.addEventListener("click", () => humanBids(bid));
-      host.append(b);
+      host.append(button(String(bid), "", () => humanBids(bid)));
     }
-    const pass = el("button", "btn ghost", "Pass");
-    pass.addEventListener("click", () => humanBids(null));
-    host.append(pass);
+    if (mayPass(game)) host.append(button("Pass", "ghost", () => humanBids(null)));
+    if (mayRequestRedeal(game, ME)) {
+      host.append(button("No points — redeal", "gold", () => { requestRedeal(game, ME); render(); }));
+    }
     return;
   }
 
   if (game.phase === "trump" && game.bidWinner === ME) {
     host.append(el("span", "prompt", "Pick a card — its suit becomes trump, face down."));
-    const confirm = el(
-      "button",
-      "btn gold",
-      pendingTrump ? `Set ${cardId(pendingTrump)} as trump` : "Choose a card",
-    );
-    confirm.disabled = !pendingTrump;
-    confirm.addEventListener("click", () => {
+    const confirm = button(pendingTrump ? `Set ${cardName(pendingTrump)} as trump` : "Choose a card", "gold", () => {
       const card = pendingTrump;
       pendingTrump = null;
+      const firstChoice = game.dealt < game.deck.length;
       chooseTrump(game, card);
-      dealHand();
+      if (firstChoice) dealHand();
       advance();
     });
+    confirm.disabled = !pendingTrump;
     host.append(confirm);
     return;
   }
 
+  if (game.phase === "raise" && game.turn === ME) {
+    const isBidder = game.bidWinner === ME;
+    const points = handPoints(game.hands[ME]) + (isBidder && game.trumpCard ? game.trumpCard.points : 0);
+    host.append(el("span", "prompt", `All eight dealt — worth ${points}. ${isBidder ? "Raise, go Thani, or keep the contract?" : `Raise over your partner's ${game.highBid}?`}`));
+    if (mayRaise(game, ME)) {
+      const floor = minRaise(game);
+      for (const bid of [floor, floor + 1, floor + 2]) {
+        if (bid > MAX_BID) break;
+        host.append(button(`Raise to ${bid}`, "", () => act(() => raiseBid(game, ME, bid)), isBidder ? "" : "You take the contract and set a new trump"));
+      }
+    }
+    if (mayDeclareThani(game, ME)) {
+      host.append(button("Thani", "gold", () => act(() => declareThani(game, ME)), `Win all eight tricks alone, no trump: +${THANI_VALUES[0]} / −${THANI_VALUES[1]}`));
+    }
+    host.append(button(isBidder ? "Keep" : "No raise", "ghost", () => act(() => raiseBid(game, ME, null))));
+    return;
+  }
+
+  if (game.phase === "double" && game.turn === ME) {
+    const [w, l] = gamePointValues(game.target);
+    host.append(el("span", "prompt", `${SEATS[game.bidWinner]} plays ${game.target} (+${w} / −${l}). Double it?`));
+    host.append(button("Double", "gold", () => act(() => decideDouble(game, ME, true))));
+    host.append(button("No", "ghost", () => act(() => decideDouble(game, ME, false))));
+    return;
+  }
+
+  if (game.phase === "redouble" && game.turn === ME) {
+    host.append(el("span", "prompt", "You've been doubled. Redouble?"));
+    host.append(button("Redouble", "gold", () => act(() => decideRedouble(game, ME, true))));
+    host.append(button("No", "ghost", () => act(() => decideRedouble(game, ME, false))));
+    return;
+  }
+
+  if (game.phase === "concession" && game.concession.by !== teamOf(ME)) {
+    host.append(el("span", "prompt", "They concede. Accept the single score, or play on for double (and lose double if you drop a trick)?"));
+    host.append(button("Accept", "", () => act(() => answerConcession(game, ME, true))));
+    host.append(button("Play on for Cot", "gold", () => act(() => answerConcession(game, ME, false))));
+    return;
+  }
+
   if (game.phase === "playing" && game.turn === ME) {
-    const lead = game.trick.length ? game.trick[0].card.suit : null;
+    const lead = game.trick.find((p) => !isJoker(p.card))?.card.suit;
+    if (mayDeclarePair(game, ME)) {
+      host.append(button("Show Pair (K+Q)", "gold", () => { declarePair(game, ME); render(); },
+        game.bidWinner !== null && teamOf(game.bidWinner) === teamOf(ME) ? "Lowers your contract by 4" : "Raises their contract by 4"));
+    }
     if (mayRequestTrump(game, ME)) {
       host.append(el("span", "prompt", `No ${SUIT_NAMES[lead]} in hand.`));
-      const call = el("button", "btn gold", "Call for trump");
-      call.addEventListener("click", () => {
+      host.append(button("Call for trump", "gold", () => {
         revealTrump(game, ME);
         render();
-      });
-      host.append(call);
-      host.append(el("span", null, "or discard anything"));
+        if (game.phase === "redeal") return;
+      }));
+      host.append(el("span", null, game.bidWinner === ME ? "or discard a non-trump" : "or discard anything"));
     } else if (lead) {
       host.append(el("span", null, `${SUIT_NAMES[lead]} ${lead} led — follow if you can.`));
     } else {
       host.append(el("span", "prompt", "Your lead."));
     }
+    if (mayConcede(game, ME)) host.append(button("Concede", "ghost", () => act(() => concede(game, ME))));
     return;
   }
 
   if (game.phase === "done") {
-    const again = el("button", "btn", "Next hand");
-    again.addEventListener("click", newHand);
-    host.append(again);
+    if (champion !== null) host.append(button("New match", "", newMatch));
+    else host.append(button("Next hand", "", newHand));
     return;
   }
   if (game.phase === "redeal") {
-    const again = el("button", "btn", "Redeal");
-    again.addEventListener("click", newHand);
-    host.append(again);
+    host.append(button("Redeal", "", newHand));
   }
 }
 
@@ -332,7 +474,7 @@ function renderLog() {
   for (const line of game.log.slice(-60)) {
     const cls = line.startsWith("South")
       ? "me"
-      : /trump|bid|trick|Contract|redeal/i.test(line)
+      : /trump|bid|trick|Contract|Redeal|Thani|Pair|double|raise|concede|Cot/i.test(line)
         ? "event"
         : "";
     host.append(el("p", cls, line));
@@ -352,18 +494,21 @@ function dealHand() {
   }, 700);
 }
 
-function humanBids(bid) {
-  placeBid(game, ME, bid);
+function act(move) {
+  move();
   render();
   advance();
 }
 
+function humanBids(bid) {
+  act(() => placeBid(game, ME, bid));
+}
+
 async function humanPlays(card) {
-  const before = game.hands[ME].length;
   const trickBefore = [...game.trick];
   const tricksBefore = game.tricksPlayed;
   playCard(game, ME, card);
-  if (game.hands[ME].length === before) return; // rejected
+  if (game.trick.length === trickBefore.length && game.tricksPlayed === tricksBefore) return; // rejected
   noteCompletedTrick(trickBefore, { seat: ME, card }, tricksBefore);
   render();
   await settleTrick();
@@ -371,8 +516,8 @@ async function humanPlays(card) {
   advance();
 }
 
-// The engine clears a trick the moment it resolves, so capture the four cards and
-// the winner for the UI to show during the pause.
+// The engine clears a trick the moment it resolves, so capture the cards and the
+// winner for the UI to show during the pause.
 function noteCompletedTrick(trickBefore, lastPlay, tricksBefore) {
   if (game.tricksPlayed > tricksBefore) {
     settling = { plays: [...trickBefore, lastPlay], winner: game.lastWinner };
@@ -388,60 +533,78 @@ async function settleTrick() {
   render();
 }
 
+// Is the human the one who must act now?
+function humanToAct() {
+  switch (game.phase) {
+    case "trump":
+      return game.bidWinner === ME;
+    case "concession":
+      return game.concession.by !== teamOf(ME);
+    case "done":
+    case "redeal":
+      return true;
+    default:
+      return game.turn === ME;
+  }
+}
+
 async function advance() {
   if (busy) return;
   busy = true;
   render();
   try {
     let guard = 0;
-    while (guard++ < 80) {
-      if (game.phase === "done" || game.phase === "redeal") break;
-      if (game.turn === ME && game.phase !== "trump") break;
-      if (game.phase === "trump" && game.bidWinner === ME) break;
+    while (guard++ < 120 && !humanToAct()) {
+      const seat = game.turn;
+      await wait(game.phase === "playing" ? PAUSE.play : PAUSE.bid);
 
-      await wait(game.phase === "bidding" ? PAUSE.bid : PAUSE.play);
-
-      if (game.phase === "bidding") {
-        placeBid(game, game.turn, decideBid(game, game.turn));
-      } else if (game.phase === "trump") {
-        chooseTrump(game, chooseTrumpSuit(game, game.bidWinner));
-        dealHand();
-      } else if (game.phase === "playing") {
-        const seat = game.turn;
-        if (wantsTrump(game, seat)) {
-          revealTrump(game, seat);
-          render();
-          await wait(PAUSE.bid);
-        }
-        const trickBefore = [...game.trick];
-        const tricksBefore = game.tricksPlayed;
-        const choice = decidePlay(game, seat);
-        playCard(game, seat, choice);
-        noteCompletedTrick(trickBefore, { seat, card: choice }, tricksBefore);
+      if (game.phase !== "playing") {
+        const firstChoice = game.phase === "trump" && game.dealt < game.deck.length;
+        aiAct(game);
+        if (firstChoice) dealHand();
         render();
-        if (settling) await settleTrick();
+        continue;
       }
+
+      if (wantsPair(game, seat)) {
+        declarePair(game, seat);
+        render();
+        await wait(PAUSE.bid);
+      }
+      if (wantsConcede(game, seat)) {
+        concede(game, seat);
+        render();
+        continue;
+      }
+      if (wantsTrump(game, seat)) {
+        revealTrump(game, seat);
+        render();
+        if (game.phase === "redeal") break;
+        await wait(PAUSE.bid);
+      }
+      const trickBefore = [...game.trick];
+      const tricksBefore = game.tricksPlayed;
+      const choice = decidePlay(game, seat);
+      playCard(game, seat, choice);
+      noteCompletedTrick(trickBefore, { seat, card: choice }, tricksBefore);
       render();
+      if (settling) await settleTrick();
     }
   } finally {
     busy = false;
     render();
   }
-
   applyResult();
 }
 
-// Called wherever a hand can end. The `scored` flag keeps it idempotent: advance()
-// returns early when another advance is already running, so relying on a single
-// call site meant some hands were never scored at all.
+// Called wherever a hand can end. The `scored` flag keeps it idempotent.
 function applyResult() {
   if (game.phase !== "done" || !game.result || game.scored) return;
   game.scored = true;
-  const r = game.result;
-  // The bidding side scores its bid when it makes it; the opponents take it when it fails.
-  if (r.made) score[r.biddingTeam] += r.bid;
-  else score[1 - r.biddingTeam] += r.bid;
-  dealer = (dealer + 1) % 4;
+  score[0] += game.result.delta[0];
+  score[1] += game.result.delta[1];
+  champion = matchWinner(score);
+  dealer = nextSeat(dealer); // the deal passes to the right
   render();
 }
 
@@ -449,12 +612,26 @@ function newHand() {
   pendingTrump = null;
   settling = null;
   flown.clear();
-  game = createGame({ dealer });
+  game = createGame({ dealer, rules });
   dealHand();
   advance();
 }
 
-$("new-hand").addEventListener("click", newHand);
-$("rules-btn").addEventListener("click", () => $("rules-dialog").showModal());
+function newMatch() {
+  score[0] = score[1] = 0;
+  lastScore = [0, 0];
+  champion = null;
+  newHand();
+}
+
+$("new-hand").addEventListener("click", () => {
+  if (busy) return;
+  newHand();
+});
+$("rules-btn").addEventListener("click", () => {
+  $("rules-note").textContent = "";
+  $("rules-dialog").showModal();
+});
+bindRuleControls();
 
 newHand();

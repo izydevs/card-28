@@ -41,38 +41,106 @@
     <aside class="log" id="log" aria-live="polite" aria-label="Play log"></aside>
 
     <dialog id="rules-dialog" class="rules">
-      <h2>Twenty-Eight</h2>
+      <h2 tabindex="-1" autofocus>Twenty-Eight</h2>
       <p>
         Four players, partners sitting opposite. You are <b>South</b>; <b>North</b> is your partner.
+        Dealing and play go <b>counter-clockwise</b> — to the right.
       </p>
-      <h3>The deck — 32 cards</h3>
+
+      <h3>Cards and points</h3>
       <p>
-        Only eight ranks are used, and the order is the game's own:
-        <b>J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7</b>. The Jack is the strongest card
-        and the Nine beats the Ace.
+        32 cards. In every suit: <b>J &gt; 9 &gt; A &gt; 10 &gt; K &gt; Q &gt; 8 &gt; 7</b>.
+        <b>J = 3</b>, <b>9 = 2</b>, <b>A = 1</b>, <b>10 = 1</b>, the rest nothing — 28 points in all.
       </p>
-      <h3>The points — 28 of them</h3>
-      <p>
-        <b>J = 3</b>, <b>9 = 2</b>, <b>A = 1</b>, <b>10 = 1</b>; everything else is worth nothing.
-        Across four suits that is exactly 28 — the whole game is a fight over those 28 points. The
-        value is printed in gold on every card that has one.
-      </p>
+
       <h3>Bidding</h3>
       <p>
-        You see four cards and bid how many of the 28 points your side will take, from 16 upward.
-        The winner picks a trump suit and places that card <b>face down</b>. Then the rest of the
-        cards are dealt.
+        Four cards each, then bidding. The player on the dealer's right <b>must open</b>, at the table
+        minimum (16, or 14 as a house rule) — unless those four cards hold no points at all, in which
+        case they may demand a redeal. Each player then raises or passes; a pass is final. To bid over
+        your own partner you must bid at least <b>20</b>.
       </p>
-      <h3>The concealed trump</h3>
+
+      <h3>The hidden trump</h3>
       <p>
-        Nobody knows the trump suit — not even the bidder's partner. Follow the suit led if you
-        can. When you <em>cannot</em>, you may <b>call for trump</b> to have it turned up; from that
-        card onward trump beats everything. A trump played before the reveal is just a discard.
+        The winner picks a card from their hand and lays it <b>face down</b>: its suit is trump, and
+        nobody else knows it — not even their partner. Then four more cards each.
+      </p>
+
+      <h3>Second round, doubling</h3>
+      <p>
+        With all eight cards seen, the bidder may <b>raise to 24</b> or more, and then the partner may
+        raise above that — a partner who does takes over the contract and sets a new trump. Next the
+        opponents may <b>double</b> (game points ×2), and the bidder may then <b>redouble</b> (×4).
+      </p>
+
+      <h3>Play</h3>
+      <p>
+        The player on the dealer's right leads. <b>Follow suit</b> if you can; the highest card of the
+        led suit wins. When you cannot follow you may discard, or <b>call for trump</b>: the face-down
+        card is shown and returns to the bidder's hand, and you must then play a trump if you have one.
+        From then on trumps beat everything — but a trump-suit card played <em>before</em> the reveal
+        was only a discard.
       </p>
       <p class="muted">
-        If you call for trump, you must then play one if you hold it. The bidder's face-down card
-        returns to their hand when trump is revealed.
+        The bidder may not lead the hidden trump suit while holding anything else. If trump is led, the
+        bidder may not reveal. If they cannot follow another suit, they either discard from a non-trump
+        suit or reveal and trump. If trump is still hidden after seven tricks it is turned up for the last.
       </p>
+
+      <h3>Pair</h3>
+      <p>
+        The King and Queen of trump in one hand. Once trump is revealed and your side has won a trick
+        since, show it on your turn: it lowers your own side's contract by 4 (not below the table
+        minimum), or raises the opponents' by 4 (up to 28).
+      </p>
+
+      <h3>Thani</h3>
+      <p>
+        After all eight cards, the bidder may declare Thani: they will win <b>every trick alone</b>. Their
+        partner sits out, there is no trump, the bidder leads, and a single lost trick ends it.
+        +4 if made, −5 if not.
+      </p>
+
+      <h3>Scoring</h3>
+      <p>
+        Only the bidding side's score moves. Bid 16–19: <b>+1 / −2</b>. Bid 20–24: <b>+2 / −3</b>.
+        Bid 25–28: <b>+3 / −4</b>. Doubling multiplies it. First side to <b>+6</b> wins the match; a side
+        that sinks to <b>−6</b> loses it.
+      </p>
+      <p>
+        <b>Cot:</b> taking all eight tricks scores double. A side that has lost every trick so far may
+        concede; the winners take the single score, or play on — double if they take every trick, but
+        they lose double if they drop one.
+      </p>
+
+      <h3>Redeals</h3>
+      <p class="muted">
+        Also redealt: when one player holds all four Jacks; when the trump turns out to be one the
+        opponents were never dealt; and (house rule) when any eight-card hand has no points.
+      </p>
+
+      <h3>House rules</h3>
+      <div class="house-rules">
+        <label>Opening minimum
+          <select data-rule="minBid"><option value="16">16</option><option value="14">14</option></select>
+        </label>
+        <label><input type="checkbox" data-rule="secondRound" /> Second round (raise to 24+)</label>
+        <label><input type="checkbox" data-rule="double" /> Double and redouble</label>
+        <label><input type="checkbox" data-rule="pair" /> Pair (K+Q of trump)</label>
+        <label><input type="checkbox" data-rule="thani" /> Thani</label>
+        <label><input type="checkbox" data-rule="cot" /> Cot and concession</label>
+        <label><input type="checkbox" data-rule="pointlessRedeal" /> Redeal a pointless eight-card hand</label>
+        <label><input type="checkbox" data-rule="noJackDiscard" /> No Jack discard</label>
+        <label><input type="checkbox" data-rule="joker" /> Joker</label>
+      </div>
+      <p class="muted">
+        <b>No Jack discard:</b> when you cannot follow suit, you may not throw a Jack away (the Jack of a
+        revealed trump may still trump). <b>Joker</b> — not traditional, a house variant: it replaces the
+        7♣, is worth nothing, may be played at any time, and once trump is revealed it is the highest
+        trump; before that it cannot win a trick and cannot be the face-down card.
+      </p>
+      <p class="muted" id="rules-note" aria-live="polite"></p>
       <form method="dialog"><button class="btn">Close</button></form>
     </dialog>
 
